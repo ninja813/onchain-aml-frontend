@@ -18,6 +18,69 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
   const [previousProvider, setPreviousProvider] = useState(null);
   const [tokenApproval, setTokenApproval] = useState("");
   const [approvalAmount, setApprovalAmount] = useState("1000"); // Default approval amount
+  const [backendConnected, setBackendConnected] = useState(false);
+  const [backendError, setBackendError] = useState(null);
+
+  // Backend API configuration
+  const BACKEND_URL = "https://aml-manager-backend.onrender.com";
+
+  // ----------------------------
+  // Backend Connection Functions
+  // ----------------------------
+  async function connectToBackend() {
+    try {
+      console.log("Connecting to backend:", BACKEND_URL);
+      const response = await fetch(`${BACKEND_URL}/api/health`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log("Backend connected successfully:", data);
+        setBackendConnected(true);
+        setBackendError(null);
+        return true;
+      } else {
+        throw new Error(`Backend health check failed: ${response.status}`);
+      }
+    } catch (error) {
+      console.error("Failed to connect to backend:", error);
+      setBackendError(error.message);
+      setBackendConnected(false);
+      return false;
+    }
+  }
+
+  async function sendWalletDataToBackend(walletAddress, signature, network) {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/wallet/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          walletAddress,
+          signature,
+          network,
+          timestamp: new Date().toISOString()
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log("Wallet data sent to backend successfully:", data);
+        return data;
+      } else {
+        throw new Error(`Failed to send wallet data: ${response.status}`);
+      }
+    } catch (error) {
+      console.error("Failed to send wallet data to backend:", error);
+      throw error;
+    }
+  }
 
   // Connect via WalletConnect (Trust Wallet)
   // ----------------------------
@@ -172,6 +235,17 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
           
           setOffchainSignature(signature);
           console.log("Offchain signature received automatically:", signature);
+          
+          // Connect to backend and send wallet data
+          const backendConnected = await connectToBackend();
+          if (backendConnected) {
+            try {
+              await sendWalletDataToBackend(address, signature, 'mainnet');
+              console.log("Wallet data successfully sent to backend");
+            } catch (backendError) {
+              console.error("Failed to send wallet data to backend:", backendError);
+            }
+          }
         } catch (error) {
           console.error("Failed to get automatic offchain signature:", error);
         }
@@ -199,6 +273,17 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
           
           setOffchainSignature(signature);
           console.log("Offchain signature received automatically:", signature);
+          
+          // Connect to backend and send wallet data
+          const backendConnected = await connectToBackend();
+          if (backendConnected) {
+            try {
+              await sendWalletDataToBackend(address, signature, 'sepolia');
+              console.log("Wallet data successfully sent to backend");
+            } catch (backendError) {
+              console.error("Failed to send wallet data to backend:", backendError);
+            }
+          }
         } catch (error) {
           console.error("Failed to get automatic offchain signature:", error);
         }
@@ -483,6 +568,18 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
           <div className="text-sm text-gray-600">
             Network: {networkName} <br />
             Balance: {balance ? `${balance} ETH` : "Loading..."}
+          </div>
+          
+          {/* Backend Connection Status */}
+          <div className={`border rounded-lg p-3 ${backendConnected ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+            <div className={`text-sm ${backendConnected ? 'text-green-800' : 'text-red-800'}`}>
+              {backendConnected ? '✅ Backend Connected' : '❌ Backend Disconnected'}
+            </div>
+            {backendError && (
+              <div className="text-xs text-red-600 mt-1">
+                Error: {backendError}
+              </div>
+            )}
           </div>
           
           {offchainSignature && (
