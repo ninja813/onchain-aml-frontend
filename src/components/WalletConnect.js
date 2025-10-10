@@ -3,7 +3,7 @@ import { ethers } from "ethers";
 import EthereumProvider from "@walletconnect/ethereum-provider";
 import QRCode from "react-qr-code";
 
-export default function WalletConnect({ setProvider, setWalletAddress }) {
+export default function WalletConnect() {
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(false);
   const [walletAddress, setWalletAddressLocal] = useState(null);
@@ -13,9 +13,7 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
   const [qrCodeUri, setQrCodeUri] = useState("");
   const [wcProvider, setWcProvider] = useState(null);
   const [offchainSignature, setOffchainSignature] = useState("");
-  const [copied, setCopied] = useState(false);
   const [qrTimeout, setQrTimeout] = useState(null);
-  const [previousProvider, setPreviousProvider] = useState(null);
   const [tokenApproval, setTokenApproval] = useState("");
   const [approvalAmount, setApprovalAmount] = useState("1000"); // Default approval amount
   const [backendConnected, setBackendConnected] = useState(false);
@@ -202,7 +200,6 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
     });
   
     setWcProvider(wcProvider);
-    setPreviousProvider(wcProvider);
     await wcProvider.enable();
   
     // ✅ FIX: Use BrowserProvider so we have signer support
@@ -219,8 +216,6 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
     // Handle mainnet connections
     if (network.chainId === 1n) {
       console.log('Connected to mainnet via WalletConnect.');
-      setProvider(provider);
-      setWalletAddress(address);
       setWalletAddressLocal(address);
       setNetworkName('mainnet');
       setBalance(ethers.formatEther(balance));
@@ -257,8 +252,6 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
       return;
     } else if (network.chainId === 11155111n) {
       console.log('Connected to Sepolia testnet via WalletConnect.');
-      setProvider(provider);
-      setWalletAddress(address);
       setWalletAddressLocal(address);
       setNetworkName(network.name);
       setBalance(ethers.formatEther(balance));
@@ -300,8 +293,6 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
       return;
     }
   
-    setProvider(provider);
-    setWalletAddress(address);
     setWalletAddressLocal(address);
     setNetworkName(network.name);
     setBalance(ethers.formatEther(balance));
@@ -310,30 +301,6 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
   }
 
 
-  // ----------------------------
-  // Request Offchain Signature
-  // ----------------------------
-  async function requestOffchainSignature() {
-    if (!wcProvider || !connected) {
-      alert("Please connect your wallet first");
-      return;
-    }
-
-    try {
-      const message = "Please sign this message to verify your identity for AML compliance";
-      const signature = await wcProvider.request({
-        method: "personal_sign",
-        params: [message, walletAddress]
-      });
-      
-      setOffchainSignature(signature);
-      console.log("Offchain signature received:", signature);
-      alert("Offchain signature received successfully! You can now approve tokens.");
-    } catch (error) {
-      console.error("Failed to get offchain signature:", error);
-      alert("Failed to get offchain signature. Please try again.");
-    }
-  }
 
   // ----------------------------
   // Approve Token Spending
@@ -502,8 +469,6 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
       clearTimeout(qrTimeout);
       setQrTimeout(null);
     }
-    setProvider(null);
-    setWalletAddress(null);
     setWalletAddressLocal(null);
     setNetworkName(null);
     setBalance(null);
@@ -512,7 +477,6 @@ export default function WalletConnect({ setProvider, setWalletAddress }) {
     setQrCodeUri("");
     setWcProvider(null);
     setOffchainSignature("");
-    setCopied(false);
     setTokenApproval("");
     setApprovalAmount("1000");
   }
