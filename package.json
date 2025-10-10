@@ -10,9 +10,6 @@
     "react-qr-code": "^2.0.12",
     "react-scripts": "5.0.1"
   },
-  "devDependencies": {
-    "@craco/craco": "^7.1.0"
-  },
   "resolutions": {
     "typescript": "^4.9.5",
     "@types/react": "^18.0.0",
@@ -24,10 +21,10 @@
     "@types/react-dom": "^18.0.0"
   },
   "scripts": {
-    "start": "craco start",
-    "build": "GENERATE_SOURCEMAP=false craco build",
-    "build:prod": "GENERATE_SOURCEMAP=false NODE_ENV=production craco build",
-    "test": "craco test",
+    "start": "react-scripts start",
+    "build": "GENERATE_SOURCEMAP=false react-scripts build",
+    "build:prod": "GENERATE_SOURCEMAP=false NODE_ENV=production react-scripts build",
+    "test": "react-scripts test",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {

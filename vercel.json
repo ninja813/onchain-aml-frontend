@@ -1,19 +1,11 @@
 {
-  "buildCommand": "npm install && GENERATE_SOURCEMAP=false npm run build",
+  "buildCommand": "npm run build",
   "outputDirectory": "build",
   "framework": "create-react-app",
   "installCommand": "npm install",
   "devCommand": "npm start",
   "env": {
     "GENERATE_SOURCEMAP": "false",
-    "NODE_ENV": "production",
-    "DISABLE_ESLINT_PLUGIN": "true"
-  },
-  "build": {
-    "env": {
-      "GENERATE_SOURCEMAP": "false",
-      "NODE_ENV": "production",
-      "DISABLE_ESLINT_PLUGIN": "true"
-    }
+    "NODE_ENV": "production"
   }
 }
