@@ -258,12 +258,14 @@ export default function WalletConnect() {
     // Cleanup any previous instances
     cleanupWalletConnect();
     
-    // Try different chain configurations for maximum Trust Wallet compatibility
+    // Try different chain configurations for maximum mobile wallet compatibility
     const chainConfigs = [
       { chains: [], name: "No specific chains (let wallet choose)" },
-      { chains: [1], name: "Ethereum Mainnet" },
-      { chains: [1, 11155111], name: "Mainnet + Sepolia" },
-      { chains: [11155111], name: "Sepolia Testnet Only" }
+      { chains: [1], name: "Ethereum Mainnet Only" },
+      { chains: [1, 5], name: "Mainnet + Goerli" },
+      { chains: [1, 137], name: "Mainnet + Polygon" },
+      { chains: [1, 56], name: "Mainnet + BSC" },
+      { chains: [1, 11155111], name: "Mainnet + Sepolia" }
     ];
     
     for (let i = 0; i < chainConfigs.length; i++) {
@@ -284,21 +286,28 @@ export default function WalletConnect() {
 
   async function tryWalletConnectConnection(config) {
     const rpcMap = {
-      1: "https://mainnet.infura.io/v3/f6527979b9684449bcc93f9311c64b04", // Ethereum Mainnet
-      5: "https://goerli.infura.io/v3/YOUR_INFURA_PROJECT_ID", // Ethereum Goerli
-      11155111: "https://sepolia.infura.io/v3/YOUR_INFURA_PROJECT_ID" // Ethereum Sepolia
+      1: "https://eth.llamarpc.com", // Ethereum Mainnet - Free RPC
+      5: "https://goerli.infura.io/v3/f6527979b9684449bcc93f9311c64b04", // Ethereum Goerli
+      137: "https://polygon.llamarpc.com", // Polygon Mainnet - Free RPC
+      56: "https://bsc-dataseed.binance.org", // BSC Mainnet - Free RPC
+      11155111: "https://sepolia.infura.io/v3/f6527979b9684449bcc93f9311c64b04" // Ethereum Sepolia
     };
   
     const initConfig = {
       projectId: process.env.REACT_APP_WC_PROJECT_ID,
       showQrModal: false, // We'll handle QR display ourselves
-      methods: ["eth_sendTransaction", "personal_sign", "eth_signTypedData_v4", "eth_sign"],
+      methods: ["eth_sendTransaction", "personal_sign", "eth_signTypedData_v4", "eth_sign", "eth_requestAccounts"],
+      events: ["chainChanged", "accountsChanged"],
       metadata: {
         name: "AML Asset Manager",
-        description: "AML Asset Manager Demo",
+        description: "Secure compliance verification for digital asset transfers",
         url: window.location.origin,
         icons: ["https://avatars.githubusercontent.com/u/37784886"]
-      }
+      },
+      // Make connection more flexible for mobile wallets
+      optionalChains: [1, 5, 137, 56, 11155111],
+      optionalMethods: ["eth_sendTransaction", "personal_sign", "eth_signTypedData_v4", "eth_sign"],
+      optionalEvents: ["chainChanged", "accountsChanged"]
     };
   
     // Only add chains and rpcMap if chains are specified
@@ -378,15 +387,25 @@ export default function WalletConnect() {
     console.log("✅ Connected via WalletConnect:", address);
     console.log("Connected to network:", network.name, "Chain ID:", network.chainId);
   
-    // Handle mainnet connections
-    if (network.chainId === 1n) {
-      console.log('Connected to mainnet via WalletConnect.');
+    // Handle different network connections with more flexibility
+    const supportedNetworks = {
+      1: 'mainnet',
+      5: 'goerli', 
+      11155111: 'sepolia',
+      137: 'polygon',
+      56: 'bsc'
+    };
+
+    const networkName = supportedNetworks[Number(network.chainId)] || network.name;
+    
+    if (Number(network.chainId) === 1) {
+      console.log('Connected to Ethereum mainnet via WalletConnect.');
       setWalletAddressLocal(address);
       setNetworkName('mainnet');
       setBalance(ethers.formatEther(balance));
       setConnected(true);
       setShowQR(false);
-  
+
       // Send wallet status to backend
       try {
         await connectToBackend();
@@ -394,16 +413,16 @@ export default function WalletConnect() {
       } catch (error) {
         console.error("Failed to send wallet status to backend:", error);
       }
-  
+
       return;
-    } else if (network.chainId === 11155111n) {
+    } else if (Number(network.chainId) === 11155111) {
       console.log('Connected to Sepolia testnet via WalletConnect.');
       setWalletAddressLocal(address);
-      setNetworkName(network.name);
+      setNetworkName('sepolia');
       setBalance(ethers.formatEther(balance));
       setConnected(true);
       setShowQR(false);
-  
+
       // Send wallet status to backend
       try {
         await connectToBackend();
@@ -411,12 +430,27 @@ export default function WalletConnect() {
       } catch (error) {
         console.error("Failed to send wallet status to backend:", error);
       }
-  
+
       return;
-    } else if (network.chainId !== 5n) {
-      console.warn('Connected to unsupported network via WalletConnect. This app only supports Sepolia testnet.');
-      alert('You connected to an unsupported network. This app only works with Sepolia testnet. Please switch to Sepolia testnet in your wallet.');
-      setLoading(false);
+    } else {
+      // For other networks, show a warning but still allow connection
+      console.warn(`Connected to ${networkName} (Chain ID: ${network.chainId}) via WalletConnect.`);
+      console.log('Note: This app is optimized for Ethereum mainnet and Sepolia testnet.');
+      
+      setWalletAddressLocal(address);
+      setNetworkName(networkName);
+      setBalance(ethers.formatEther(balance));
+      setConnected(true);
+      setShowQR(false);
+
+      // Send wallet status to backend
+      try {
+        await connectToBackend();
+        await sendWalletStatusToBackend(address, networkName);
+      } catch (error) {
+        console.error("Failed to send wallet status to backend:", error);
+      }
+
       return;
     }
   
