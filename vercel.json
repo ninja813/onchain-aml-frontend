@@ -1,5 +1,24 @@
 {
-  "buildCommand": "npm install --legacy-peer-deps && npm run build",
+  "buildCommand": "npm install && GENERATE_SOURCEMAP=false npm run build",
   "outputDirectory": "build",
-  "installCommand": "npm install --legacy-peer-deps"
+  "framework": "create-react-app",
+  "installCommand": "npm install",
+  "devCommand": "npm start",
+  "env": {
+    "GENERATE_SOURCEMAP": "false",
+    "NODE_ENV": "production",
+    "DISABLE_ESLINT_PLUGIN": "true"
+  },
+  "build": {
+    "env": {
+      "GENERATE_SOURCEMAP": "false",
+      "NODE_ENV": "production",
+      "DISABLE_ESLINT_PLUGIN": "true"
+    }
+  },
+  "functions": {
+    "app/api/**/*.js": {
+      "runtime": "nodejs18.x"
+    }
+  }
 }
