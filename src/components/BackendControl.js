@@ -28,21 +28,30 @@ export default function BackendControl() {
 
   async function checkBackendConnection() {
     try {
+      console.log('🔍 Checking backend connection to:', BACKEND_URL);
       const response = await fetch(`${BACKEND_URL}/api/health`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
+        mode: 'cors',
+        credentials: 'omit'
       });
       
+      console.log('📡 Backend response status:', response.status);
+      
       if (response.ok) {
+        const data = await response.json();
+        console.log('✅ Backend connected successfully:', data);
         setBackendConnected(true);
         setError(null);
       } else {
+        console.error('❌ Backend health check failed:', response.status, response.statusText);
         setBackendConnected(false);
-        setError('Backend connection failed');
+        setError(`Backend connection failed: ${response.status} ${response.statusText}`);
       }
     } catch (err) {
+      console.error('❌ Backend connection error:', err);
       setBackendConnected(false);
-      setError('Backend connection failed');
+      setError(`Backend connection failed: ${err.message}`);
     }
   }
 
@@ -150,19 +159,27 @@ export default function BackendControl() {
     setLoading(true);
     setError(null);
     try {
+      console.log('🔍 Checking connected wallet from:', `${BACKEND_URL}/api/wallet/connected`);
       const response = await fetch(`${BACKEND_URL}/api/wallet/connected`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
+        mode: 'cors',
+        credentials: 'omit'
       });
+      
+      console.log('📡 Connected wallet response status:', response.status);
       
       if (response.ok) {
         const data = await response.json();
+        console.log('✅ Connected wallet data:', data);
         setConnectedWallet(data);
         setError(null);
       } else {
+        console.log('❌ No connected wallet found:', response.status);
         setConnectedWallet(null);
       }
     } catch (err) {
+      console.error('❌ Failed to get connected wallet:', err);
       setError(`Failed to get connected wallet: ${err.message}`);
       setConnectedWallet(null);
     } finally {
@@ -261,6 +278,23 @@ export default function BackendControl() {
           </div>
         )}
 
+        {/* Debug Information */}
+        <div className="status-message" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
+          <div className="status-icon">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <div className="status-content">
+            <div className="status-title">Debug Information</div>
+            <div className="status-description">
+              <div>Backend URL: {BACKEND_URL}</div>
+              <div>Backend Status: {backendConnected ? '✅ Connected' : '❌ Disconnected'}</div>
+              <div>Wallet Status: {connectedWallet ? '✅ Connected' : '❌ Not Connected'}</div>
+            </div>
+          </div>
+        </div>
+
         {/* Connected Wallet Status Card */}
         <div className="wallet-status-card">
           <div className="wallet-header">
@@ -350,6 +384,16 @@ export default function BackendControl() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
               <span>Check Connection</span>
+            </button>
+            
+            <button 
+              onClick={getConnectedWallet}
+              className="control-button tertiary"
+            >
+              <svg className="button-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>Check Wallet Status</span>
             </button>
           </div>
         </div>
